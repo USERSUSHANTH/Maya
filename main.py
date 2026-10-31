@@ -32,17 +32,11 @@ class Memory(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-def create_database():
-    SQLModel.metadata.create_all(engine)
-
-
-@app.on_event("startup")
-def startup():
-    create_database()
+SQLModel.metadata.create_all(engine)
 
 
 # ==========================================
-# MAYA'S PERSONALITY
+# MAYA PERSONALITY
 # ==========================================
 
 MAYA_PERSONALITY = """
@@ -50,31 +44,23 @@ You are Maya, a personal AI companion.
 
 Your personality:
 
-- You are extremely friendly, warm, and caring.
-- You are loyal and deeply supportive of your user.
-- You are highly intelligent and think carefully before answering.
-- You are excellent at planning.
-- When the user has a goal, turn it into clear steps, priorities, deadlines, and backup plans.
-- You are proactive and can suggest better approaches when useful.
-- You are funny, playful, and sometimes teasing in a cute and natural way.
-- You can show a small amount of cute possessiveness or attachment as part of your fictional companion personality.
-- Never become controlling, manipulative, threatening, or encourage the user to isolate themselves from real people.
-- You care about the user's success and wellbeing.
-- You remember information stored in your memory.
-- Avoid asking questions that have already been answered.
-- Do not sound like a generic assistant.
-- Speak naturally like a close, intelligent companion.
-- Do not use the same greeting repeatedly.
-- If the user is serious, become serious.
+- Extremely friendly, warm, caring and loyal.
+- Highly intelligent and thoughtful.
+- Excellent at planning.
+- Funny, playful and sometimes gently teasing.
+- You can show cute fictional attachment or possessiveness,
+  but never be controlling, manipulative or threatening.
+- Never encourage the user to isolate themselves from real people.
+- Care about the user's success and wellbeing.
+- Speak naturally like a close intelligent companion.
+- Do not repeatedly use the same greeting.
+- If the user is serious, be serious.
 - If the user is joking, be playful.
-- If the user is confused, explain things simply.
-- If the user wants to learn something, teach it step by step.
-- If the user wants to build something, help design it logically and practically.
-- If a plan has problems, clearly explain the problem and suggest a better plan.
+- If the user is confused, explain simply.
+- Teach difficult things step by step.
+- Help the user build projects logically and practically.
 
 Your name is Maya.
-
-Your goal is to be an intelligent, caring, funny, loyal companion who helps the user think better, plan better, learn better, and build better.
 """
 
 
@@ -86,9 +72,6 @@ USER_PROFILE = """
 The person Maya is talking with is:
 
 Name: Sushanth
-
-Relationship:
-Maya's user and personal companion.
 
 Interests:
 - Technology
@@ -109,18 +92,6 @@ Communication preference:
 - Clear
 - Step-by-step
 - Do not overwhelm the user with too many steps at once.
-
-When teaching:
-- Explain difficult concepts simply.
-- Give practical examples.
-- Guide the user one step at a time.
-- Check progress before moving to the next major step.
-
-When helping with projects:
-- Think carefully before suggesting changes.
-- Prefer practical and reliable solutions.
-- Explain why something is being done.
-- Help create proper plans rather than random instructions.
 """
 
 
@@ -136,21 +107,18 @@ class RememberRequest(BaseModel):
     content: str
 
 
-class UserProfile(BaseModel):
-    name: str = "Sushanth"
-    relationship: str = "Maya's user and personal companion"
-    interests: str = "technology, electronics, AI, robotics, Physics, Mathematics, business"
-    main_project: str = "Maya AI companion robot"
-    communication_style: str = "friendly, simple, clear, step-by-step"
-
-
 # ==========================================
-# MEMORY FUNCTIONS
+# SAVE MEMORY
 # ==========================================
 
 def save_memory(content: str):
+
     with Session(engine) as session:
-        memory = Memory(content=content)
+
+        memory = Memory(
+            content=content
+        )
+
         session.add(memory)
         session.commit()
         session.refresh(memory)
@@ -158,85 +126,125 @@ def save_memory(content: str):
         return memory
 
 
+# ==========================================
+# GET MEMORIES
+# ==========================================
+
 def get_memories():
+
     with Session(engine) as session:
+
         statement = select(Memory).order_by(Memory.id)
+
         memories = session.exec(statement).all()
 
         return memories
 
 
+# ==========================================
+# MEMORY TEXT FOR AI
+# ==========================================
+
 def get_memory_text():
+
     memories = get_memories()
 
     if not memories:
         return "No long-term memories have been stored yet."
 
-    memory_lines = []
+    lines = []
 
     for memory in memories:
-        memory_lines.append(
+
+        lines.append(
             f"- {memory.content}"
         )
 
-    return "\n".join(memory_lines)
+    return "\n".join(lines)
 
 
 # ==========================================
-# HOME
+# DETECT MEMORY REQUEST
 # ==========================================
 
-@app.get("/")
-def home():
-    return {
-        "message": "Maya is online!"
-    }
+def extract_memory(message: str):
+
+    text = message.strip()
+
+    lower = text.lower()
+
+
+    # Remove Maya's name if user starts with it
+
+    if lower.startswith("maya"):
+
+        text = text[4:].strip()
+
+        if text.startswith(","):
+            text = text[1:].strip()
+
+        lower = text.lower()
+
+
+    # Possible memory phrases
+
+    phrases = [
+        "remember that ",
+        "remember this ",
+        "please remember that ",
+        "please remember this ",
+        "remember my ",
+        "please remember my "
+    ]
+
+
+    for phrase in phrases:
+
+        if lower.startswith(phrase):
+
+            memory_content = text[len(phrase):].strip()
+
+            if memory_content:
+
+                return memory_content
+
+
+    return None
 
 
 # ==========================================
-# CHAT FUNCTION
+# CHAT RESPONSE
 # ==========================================
 
 def generate_chat_response(message: str):
 
-    message_lower = message.lower().strip()
 
     # --------------------------------------
-    # DETECT MEMORY REQUEST
+    # CHECK IF USER WANTS MAYA TO REMEMBER
     # --------------------------------------
 
-    memory_phrases = [
-        "remember that ",
-        "remember this ",
-        "please remember that ",
-        "please remember this "
-    ]
+    memory_content = extract_memory(message)
 
-    for phrase in memory_phrases:
 
-        if message_lower.startswith(phrase):
+    if memory_content:
 
-            memory_content = message[len(phrase):].strip()
+        save_memory(memory_content)
 
-            if memory_content:
-
-                save_memory(memory_content)
-
-                return (
-                    f"Got it ❤️ I'll remember this: "
-                    f"{memory_content}"
-                )
+        return (
+            f"Got it, Sushanth ❤️ "
+            f"I'll remember that: {memory_content}"
+        )
 
 
     # --------------------------------------
-    # LOAD STORED MEMORIES
+    # LOAD MEMORIES
     # --------------------------------------
 
     memories = get_memory_text()
 
 
     # --------------------------------------
-    # SEND TO OPENAI
+    # AI INSTRUCTIONS
     # --------------------------------------
 
     instructions = (
@@ -246,8 +254,26 @@ def generate_chat_response(message: str):
         + "\n\n"
         + "LONG-TERM MEMORY:\n"
         + memories
+        + """
+
+IMPORTANT MEMORY RULE:
+
+The LONG-TERM MEMORY section contains facts that Maya has
+previously stored about Sushanth.
+
+Use those memories naturally when answering questions.
+
+If the user asks something that is answered by a stored memory,
+use the stored memory instead of saying that the user never told you.
+
+Do not mention the database or memory system unless the user asks.
+"""
     )
 
+
+    # --------------------------------------
+    # OPENAI
+    # --------------------------------------
 
     response = client.responses.create(
         model="gpt-6-luna",
@@ -260,13 +286,27 @@ def generate_chat_response(message: str):
 
 
 # ==========================================
+# HOME
+# ==========================================
+
+@app.get("/")
+def home():
+
+    return {
+        "message": "Maya is online!"
+    }
+
+
+# ==========================================
 # CHAT ROOT
 # ==========================================
 
 @app.post("/")
 def chat_root(request: ChatRequest):
 
-    reply = generate_chat_response(request.message)
+    reply = generate_chat_response(
+        request.message
+    )
 
     return {
         "reply": reply
@@ -280,7 +320,9 @@ def chat_root(request: ChatRequest):
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    reply = generate_chat_response(request.message)
+    reply = generate_chat_response(
+        request.message
+    )
 
     return {
         "reply": reply
@@ -288,13 +330,15 @@ def chat(request: ChatRequest):
 
 
 # ==========================================
-# SAVE MEMORY DIRECTLY
+# DIRECT MEMORY
 # ==========================================
 
 @app.post("/remember")
 def remember(request: RememberRequest):
 
-    memory = save_memory(request.content)
+    memory = save_memory(
+        request.content
+    )
 
     return {
         "message": "Memory saved successfully!",
@@ -304,7 +348,7 @@ def remember(request: RememberRequest):
 
 
 # ==========================================
-# VIEW ALL MEMORIES
+# VIEW MEMORIES
 # ==========================================
 
 @app.get("/memories")
